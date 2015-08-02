@@ -163,22 +163,24 @@ public class ScheduledTasks {
 			System.out.println("");
 			if(!autoTileH2.equals(split[0]))
 			{
-				autoDocBody.addElement("h2").addAttribute("class", "bookmark").addElement("a").addAttribute("name", "h2_"+autoTileNr).addText(split[0]);
+				autoDocBody.addElement("h2").addAttribute("data-bookmark", "h2").addElement("a").addAttribute("name", "h2_"+autoTileNr).addText(split[0]);
 				autoTileH2 = split[0];
 			}
 			if(split.length > 1)
 			{
-				autoDocBody.addElement("h3").addAttribute("class", "bookmark").addElement("a").addAttribute("name", "h3_"+autoTileNr).addText(split[1]);
+				autoDocBody.addElement("h3").addAttribute("data-bookmark", "h3").addElement("a").addAttribute("name", "h3_"+autoTileNr).addText(split[1]);
 				/*
 				autoDocBody.addElement("a").addAttribute("href", autoTileHref).addText(split[1]);
 				 * */
 				domFromStream = getDomFromStream(autoTileHref);
 				Element autoTileElement = (Element) domFromStream.selectSingleNode("/html/body//div[@id='page1-div']");
 				if(autoTileElement != null){
-					Node h4El = autoTileElement.selectSingleNode("p").detach();
-					logger.debug(""+h4El);
-					autoDocBody.addElement("h4").addAttribute("class", "bookmark").addElement("a").addAttribute("name", "h4_"+autoTileNr).addText(h4El.getText());
-					autoTileElement.attribute("id").setValue("auto_tile_"+autoTileNr);
+					Element h4El = (Element) autoTileElement.selectSingleNode("p");//.detach();
+					Node h4ElText = h4El.selectSingleNode("text()").detach();
+					logger.debug(""+h4ElText.asXML());
+					h4El.addAttribute("data-bookmark", "h4").addElement("a").addAttribute("name", "h4_"+autoTileNr).addText(h4ElText.getText());
+//					autoDocBody.addElement("h4").addAttribute("class", "bookmark").addElement("a").addAttribute("name", "h4_"+autoTileNr).addText(h4El.getText());
+//					autoTileElement.attribute("id").setValue("auto_tile_"+autoTileNr);
 					changeImgUrl(autoTileElement);
 					
 					Node detach = autoTileElement.detach();
@@ -252,7 +254,9 @@ public class ScheduledTasks {
 			.appendSeconds().appendSuffix("s ")
 			.toFormatter();
 	private void buildBookmark(Document autoDocument) {
-		List<Element> bookmarkEls = autoDocument.selectNodes("/html/body/*[@class='bookmark']");
+		//List<Element> bookmarkEls = autoDocument.selectNodes("/html/body/*[@class='bookmark']");
+//		List<Element> bookmarkEls = autoDocument.selectNodes("/html/body//*[@data-bookmark='h2'|@data-bookmark='h3'|@data-bookmark='h4']");
+		List<Element> bookmarkEls = autoDocument.selectNodes("/html/body//*[@data-bookmark='h2' or @data-bookmark='h3' or @data-bookmark='h4']");
 		logger.debug(""+bookmarkEls.size());
 		Element headEl = (Element) autoDocument.selectSingleNode("/html/head");
 		Element bookmarks = headEl.addElement("bookmarks")
@@ -263,7 +267,7 @@ public class ScheduledTasks {
 		for (Element h234Element : bookmarkEls) {
 			i++;
 			System.out.println(i);
-			if(h234Element.getName().equals("h2"))
+			if(h234Element.attribute("data-bookmark").getValue().equals("h2"))
 			{
 				h2 = bookmarks.addElement("bookmark");
 				h2id = "bm"+h2i++;
@@ -271,18 +275,18 @@ public class ScheduledTasks {
 				System.out.println(h2.asXML());
 			}
 			else
-				if(h234Element.getName().equals("h3"))
+				if(h234Element.attribute("data-bookmark").getValue().equals("h3"))
 				{
 					h3 = h2.addElement("bookmark");
-					h3id = h2id + "bm"+h3i++;
+					h3id = h2id + "."+h3i++;
 					makeBookmark(h3, h234Element, h3id);
 					System.out.println(h3.asXML());
 				}
 				else
-					if(h234Element.getName().equals("h4"))
+					if(h234Element.attribute("data-bookmark").getValue().equals("h4"))
 					{
 						h4 = h3.addElement("bookmark");
-						h4id = h2id + h3id + "bm"+h4i++;
+						h4id = h3id + "."+h4i++;
 						makeBookmark(h4, h234Element, h4id);
 						System.out.println(h4.asXML());
 					}
@@ -297,6 +301,7 @@ public class ScheduledTasks {
 		h234InHead.addAttribute("href", "#"+id);
 		h234A_Element.addAttribute("name", id);
 	}
+
 	private void makeBookmark2(Element h234InHead, Element h234Element, String id) {
 		System.out.println(h234Element.asXML());
 		System.out.println(1);
