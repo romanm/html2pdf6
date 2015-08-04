@@ -126,7 +126,7 @@ public class ScheduledTasks {
 						|| autoHref.equals(domain)
 						) continue;
 				autoDocument = createAutoDocument();
-				initAutoData();
+				
 				readAutoIndexList(autoHref, autoName, manufacturer);
 //				readAuto(autoHref, autoName, manufacturer);
 				cnt2++;
@@ -153,9 +153,11 @@ public class ScheduledTasks {
 	int autoTileIndexNr = 0;
 	private void readAutoIndexList(String autoTileHref, String autoName, String manufacturer) {
 		autoTileIndexNr = 0;
+		initAutoData();
 		readNextAutoIndexList(autoTileHref);
 		try{
 			buildBookmark(autoDocument);
+			autoName = autoName.replaceAll(" ", "_");
 			String htmlOutFileName = outputDir+"/"+manufacturer+"/"+manufacturer+"_"+autoName+".html";
 			saveHtml(autoDocument, htmlOutFileName);
 			savePdf(htmlOutFileName, htmlOutFileName+".pdf");
@@ -165,10 +167,24 @@ public class ScheduledTasks {
 		}
 	}
 	private void readNextAutoIndexList(String autoTileHref) {
-		Document autoTileDom = getDomFromStream(autoTileHref);
-		String indexHrefAdd = ((Attribute) autoTileDom.selectSingleNode("/html/body//iframe/@src")).getValue();
-		String hrefContent = autoTileHref+""+indexHrefAdd;
-		DOMDocument autoTileContextDom = getDomFromStream(hrefContent);
+		DOMDocument autoTileContextDom = null;
+		try{
+			Document autoTileDom = getDomFromStream(autoTileHref);
+			String indexHrefAdd = ((Attribute) autoTileDom.selectSingleNode("/html/body//iframe/@src")).getValue();
+			String hrefContent = autoTileHref+""+indexHrefAdd;
+			autoTileContextDom = getDomFromStream(hrefContent);
+		}catch (Exception e){
+			List<Map<String, Object>> workIndexList = initIndexList(autoData);
+			Map<String, Object> workContentItem = workIndexList.get(workIndexList.size() - 1);
+			HashMap<String, Object> contextItem = new HashMap<String, Object>();
+			contextItem.put("text", "BAD PAGE");
+			contextItem.put("error", e.getMessage());
+			contextItem.put("url", autoTileHref);
+			workIndexList.add(contextItem);
+			logger.error(e.getMessage());
+			return;
+		}
+
 		List<DOMElement> myPagePosition = (List<DOMElement>) autoTileContextDom.selectNodes("/html/body/div/p[@style and not(a)]");
 		Map<String, Object> contextItem = null;
 		for (Element element : myPagePosition) {
@@ -202,7 +218,7 @@ public class ScheduledTasks {
 		DOMElement nextSibling = (DOMElement) lastElement.getNextSibling();
 		if(nextSibling != null){
 			autoTileIndexNr++;
-			if(autoTileIndexNr > 100)
+			if(autoTileIndexNr > 100000)
 				return;
 			Attribute hrefAttribute = (Attribute) nextSibling.selectSingleNode("a/@href");
 			String hrefAutoTileNext = hrefAttribute.getValue();
