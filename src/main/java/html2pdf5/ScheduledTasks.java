@@ -16,15 +16,23 @@ import java.net.ProtocolException;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Date;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 import org.dom4j.Attribute;
 import org.dom4j.Document;
 import org.dom4j.DocumentHelper;
 import org.dom4j.Element;
 import org.dom4j.Node;
+import org.dom4j.dom.DOMDocument;
+import org.dom4j.dom.DOMDocumentFactory;
+import org.dom4j.dom.DOMElement;
 import org.dom4j.io.DOMReader;
 import org.dom4j.io.OutputFormat;
 import org.dom4j.io.XMLWriter;
@@ -38,6 +46,9 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.w3c.tidy.Tidy;
 import org.xhtmlrenderer.pdf.ITextRenderer;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.ObjectWriter;
 
 @Component
 public class ScheduledTasks {
@@ -62,6 +73,7 @@ public class ScheduledTasks {
 	public void reportCurrentTime() {
 		startMillis = new DateTime();
 		System.out.println("The time is now " + dateFormat.format(startMillis.toDate()));
+		domReader.setDocumentFactory(new DOMDocumentFactory());
 		
 //		readAuto(ford1, "c-max_2003.75_06.2003", "ford");
 //		if(true) return;
@@ -97,7 +109,6 @@ public class ScheduledTasks {
 		//logger.debug(msg);
 //		saveAutoIndexDocument();
 	}
-
 	private void readManufacturer(Element manufacturerAncorElement, String href, String manufacturer, Document document2) {
 		List<Element> allManufacturerAutos = document2.selectNodes("/html/body/div/table//a[contains(@href,'"
 				+ manufacturer
@@ -114,7 +125,10 @@ public class ScheduledTasks {
 				if(replace.equals(manufacturer) 
 						|| autoHref.equals(domain)
 						) continue;
-				readAuto(autoHref, autoName, manufacturer);
+				autoDocument = createAutoDocument();
+				initAutoData();
+				readAutoIndexList(autoHref, autoName, manufacturer);
+//				readAuto(autoHref, autoName, manufacturer);
 				cnt2++;
 				System.out.println("-----------------------------------------------------"+cnt2);
 				if(cnt2==1)
@@ -122,8 +136,199 @@ public class ScheduledTasks {
 			}
 		}
 	}
+	private void initAutoData() {
+		autoData = new HashMap<String, Object>();
+		autoData.put("workPath", new ArrayList<Integer>());
+		initIndexList(autoData);
+	}
+	private List<Map<String, Object>> initIndexList(Map<String, Object> autoData) {
+		if(!autoData.containsKey("indexList")){
+			autoData.put("indexList", new ArrayList<Map<String, Object>>());
+		}
+		return (List<Map<String, Object>>) autoData.get("indexList");
+	}
+	Document autoDocument;
+	Map<String, Object> autoData;
+	
+	int autoTileIndexNr = 0;
+	private void readAutoIndexList(String autoTileHref, String autoName, String manufacturer) {
+		autoTileIndexNr = 0;
+		readNextAutoIndexList(autoTileHref);
+		try{
+			buildBookmark(autoDocument);
+			String htmlOutFileName = outputDir+"/"+manufacturer+"/"+manufacturer+"_"+autoName+".html";
+			saveHtml(autoDocument, htmlOutFileName);
+			savePdf(htmlOutFileName, htmlOutFileName+".pdf");
+			writeToJsonDbFile(autoData, htmlOutFileName+".json");
+		}catch(Exception e){
+			e.printStackTrace();
+		}
+	}
+	private void readNextAutoIndexList(String autoTileHref) {
+		Document autoTileDom = getDomFromStream(autoTileHref);
+		String indexHrefAdd = ((Attribute) autoTileDom.selectSingleNode("/html/body//iframe/@src")).getValue();
+		String hrefContent = autoTileHref+""+indexHrefAdd;
+		DOMDocument autoTileContextDom = getDomFromStream(hrefContent);
+		List<DOMElement> myPagePosition = (List<DOMElement>) autoTileContextDom.selectNodes("/html/body/div/p[@style and not(a)]");
+		Map<String, Object> contextItem = null;
+		for (Element element : myPagePosition) {
+			String text = element.getText();
+			String style = element.attribute("style").getValue();
+			String level = style.split(";")[0].split("padding-left:")[1].split("pt")[0];
+			int levelInt = Integer.parseInt(level)/10;
+			if(levelInt < 0 && !autoData.containsKey("autoName")){
+				autoData.put("autoName", text);
+			}else if(levelInt >= 0){
+				int indexOfcrrent = text.indexOf(">>");
+				if(indexOfcrrent == 0)
+				{
+					levelInt = levelInt + 1;
+					text = text.replace(">>", "").replace("<<", "").trim();
+					logger.debug("/"+levelInt+" -- "+text);
+				}
+				contextItem = new HashMap<String, Object>();
+				contextItem.put("text", text);
+				Map<String, Object> workContentItem = autoData;
+				List<Map<String, Object>> workIndexList = initIndexList(workContentItem);
+				for (int i = 0; i < levelInt; i++) {
+					workContentItem = workIndexList.get(workIndexList.size() - 1);
+					workIndexList = initIndexList(workContentItem);
+				}
+				workIndexList.add(contextItem);
+			}
+		}
+		contextItem.put("url", autoTileHref);
+		DOMElement lastElement = myPagePosition.get(myPagePosition.size() - 1);
+		DOMElement nextSibling = (DOMElement) lastElement.getNextSibling();
+		if(nextSibling != null){
+			autoTileIndexNr++;
+			if(autoTileIndexNr > 100)
+				return;
+			Attribute hrefAttribute = (Attribute) nextSibling.selectSingleNode("a/@href");
+			String hrefAutoTileNext = hrefAttribute.getValue();
+			readNextAutoIndexList(hrefAutoTileNext);
+		}
+	}
 
+	void writeToJsonDbFile(Object java2jsonObject, String fileName) {
+		File file = new File(fileName);
+		logger.warn(""+file);
+		ObjectMapper mapper = new ObjectMapper();
+		ObjectWriter writerWithDefaultPrettyPrinter = mapper.writerWithDefaultPrettyPrinter();
+		try {
+			//			logger.warn(writerWithDefaultPrettyPrinter.writeValueAsString(java2jsonObject));
+			FileOutputStream fileOutputStream = new FileOutputStream(file);
+			writerWithDefaultPrettyPrinter.writeValue(fileOutputStream, java2jsonObject);
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+	}
+
+	Set<String> contentSet ;
+	String autoTileName ;
+	int h2Count = 0;
 	private void readAuto(String autoTileHref, String autoName, String manufacturer) {
+		h2Count = 1;
+		Document autoDocument = createAutoDocument();
+		Element autoDocBody = (Element) autoDocument.selectSingleNode("/html/body");
+		autoDocBody.addElement("h1").addText( manufacturer.toUpperCase()+ " :: "+ autoName);
+		
+		contentSet = new HashSet<String>();
+		
+		addAutoTileH2(autoTileHref, manufacturer, autoDocBody);
+		
+		try{
+			buildBookmark(autoDocument);
+			String htmlOutFileName = outputDir+"/"+manufacturer+"/"+manufacturer+"_"+autoName+".html";
+			saveHtml(autoDocument, htmlOutFileName);
+			savePdf(htmlOutFileName, htmlOutFileName+".pdf");
+		}catch(Exception e){
+			e.printStackTrace();
+		}
+	}
+
+	private void addAutoTileH2(String autoTileHref, String manufacturer, Element autoDocBody) {
+		logger.debug(autoTileHref);
+		contentSet.add(autoTileHref);
+		Document domFromStream = getDomFromStream(autoTileHref);
+		Element titleElement = (Element) domFromStream.selectSingleNode("/html/head/title");
+		String[] split = titleElement.getText().split(">");
+		autoTileName = split[1].trim();// from title
+		String h2level = split[2].trim();
+		logger.debug("h2level "+h2level);
+		autoDocBody.addElement("h2").addAttribute("data-bookmark", "h2")
+		.addElement("a").addAttribute("name", "h2_"+h2Count).addText(h2level);
+		String indexHrefAdd = ((Attribute) domFromStream.selectSingleNode("/html/body//iframe/@src")).getValue();
+		String hrefContent = autoTileHref+""+indexHrefAdd;
+		DOMDocument contextDocument = getDomFromStream(hrefContent);
+		String nextH2Href = null;
+		List<DOMElement> addH3 = addH3(autoDocBody, h2level, h2Count, contextDocument);
+		DOMElement element1 = addH3.get(addH3.size()-1);
+		while (element1.getNextSibling() != null) {
+			element1 = (DOMElement) element1.getNextSibling();
+			DOMElement element = (DOMElement) element1.getFirstChild();
+			autoTileHref = element.attribute("href").getValue();
+			autoTileName = element.getText();
+			if(autoTileHref.contains("privacy.php")
+					|| autoTileHref.replaceAll("/", "").equals(manufacturer)
+					|| autoTileHref.equals(domain)
+					) continue;
+			if(contentSet.add(autoTileName)){
+				logger.debug(autoTileName+"/"+h2level+"/"+(autoTileName.contains(h2level)));
+				if(autoTileName.contains(h2level)){
+				}else{
+					logger.debug("------add new addAutoTileH2--------------");
+					h2Count++;
+					nextH2Href = autoTileHref;
+					break;
+				}
+			}
+		}
+		addAutoTile();
+
+		/*
+		List<DOMElement> autoTileContextIndex = (List<DOMElement>) contextDocument.selectNodes("/html/body/div/p/a");
+		DOMElement firstContextLink = autoTileContextIndex.get(0);
+		for (Element element : autoTileContextIndex) {
+		}
+		 * */
+		if(nextH2Href != null && h2Count < 5)
+			addAutoTileH2(nextH2Href, manufacturer, autoDocBody);
+	}
+
+	private List<DOMElement> addH3(Element autoDocBody, String h2level,
+			int autoTileNr, DOMDocument contextDocument) {
+		List<DOMElement> myPagePosition = (List<DOMElement>) contextDocument.selectNodes("/html/body/div/p[not(a)]");
+		for (Element element : myPagePosition) {
+			String text = element.getText();
+			if(
+					text.equals("Donate and help keep workshop manuals freely available.")
+					|| text.equals("Component Information")
+					|| text.equals(">>Locations<<")
+					|| text.equals(h2level)
+					|| text.contains(autoTileName)
+					)
+				continue;
+			text = text.replace(h2level, "").trim();//acura fall
+			if(text.indexOf("-") == 0)
+				text = text.substring(1).trim();
+				
+			if(contentSet.add(text))
+			{
+				autoDocBody.addElement("h3").addAttribute("data-bookmark", "h3")
+				.addElement("a").addAttribute("name", "h3_"+autoTileNr).addText(text);
+				break;
+			}
+		}
+		return myPagePosition;
+	}
+
+	private void addAutoTile() {
+		// TODO Auto-generated method stub
+		
+	}
+
+	private void readAuto2(String autoTileHref, String autoName, String manufacturer) {
 		logger.debug(autoTileHref);
 		Document domFromStream = getDomFromStream(autoTileHref);
 
@@ -140,7 +345,6 @@ public class ScheduledTasks {
 		logger.debug(
 				"\n"+autoTileHref
 				+"\n tiles count "+autoTileContextIndex.size());
-		String addAutoTile = "123";
 		String autoTileH2 = "";
 		String autoTileH3 = "";
 		for (Element element : autoTileContextIndex) {
@@ -152,15 +356,7 @@ public class ScheduledTasks {
 					)
 				continue;
 			autoTileNr++;
-			System.out.println(
-					autoTileNr+" -- "+autoTileName+
-					"\n"+autoTileHref
-					);
 			String[] split = autoTileName.split(" - ");
-			for (String string : split) {
-				System.out.print(" -:- "+string);
-			}
-			System.out.println("");
 			if(!autoTileH2.equals(split[0]))
 			{
 				autoDocBody.addElement("h2").addAttribute("data-bookmark", "h2").addElement("a").addAttribute("name", "h2_"+autoTileNr).addText(split[0]);
@@ -168,63 +364,40 @@ public class ScheduledTasks {
 			}
 			if(split.length > 1)
 			{
-				autoDocBody.addElement("h3").addAttribute("data-bookmark", "h3").addElement("a").addAttribute("name", "h3_"+autoTileNr).addText(split[1]);
-				/*
-				autoDocBody.addElement("a").addAttribute("href", autoTileHref).addText(split[1]);
-				 * */
+//				autoDocBody.addElement("h3").addAttribute("data-bookmark", "h3").addElement("a").addAttribute("name", "h3_"+autoTileNr).addText(split[1]);
 				domFromStream = getDomFromStream(autoTileHref);
-				Element autoTileElement = (Element) domFromStream.selectSingleNode("/html/body//div[@id='page1-div']");
+				DOMElement autoTileElement = (DOMElement) domFromStream.selectSingleNode("/html/body//div[@id='page1-div']");
 				if(autoTileElement != null){
-					Element h4El = (Element) autoTileElement.selectSingleNode("p");//.detach();
+					DOMDocument document = (DOMDocument) autoTileElement.getDocument();
+					DOMElement h3El = (DOMElement) document.createElement("h3");
+					h3El
+					.addAttribute("data-bookmark", "h3")
+					.addAttribute("style", "font-weight: bold; left: 0px; position: absolute; top: 3px; white-space: nowrap")
+					.addElement("a").addAttribute("name", "h3_"+autoTileNr).addText(split[1]);
+					DOMElement h4El = (DOMElement) autoTileElement.selectSingleNode("p");//.detach();
+					autoTileElement.insertBefore(h3El, h4El);
 					Node h4ElText = h4El.selectSingleNode("text()").detach();
-					logger.debug(""+h4ElText.asXML());
+					logger.debug(""+h4ElText.asXML()
+					+"\n "+(h4El)
+//					+"\n "+autoTileElement.asXML()
+					);
 					h4El.addAttribute("data-bookmark", "h4").addElement("a").addAttribute("name", "h4_"+autoTileNr).addText(h4ElText.getText());
-//					autoDocBody.addElement("h4").addAttribute("class", "bookmark").addElement("a").addAttribute("name", "h4_"+autoTileNr).addText(h4El.getText());
-//					autoTileElement.attribute("id").setValue("auto_tile_"+autoTileNr);
 					changeImgUrl(autoTileElement);
 					
 					Node detach = autoTileElement.detach();
 					autoDocBody.add(detach);
+				}else{
+					autoDocBody.addElement("h3").addAttribute("data-bookmark", "h3").addElement("a").addAttribute("name", "h3_"+autoTileNr).addText(split[1]);
 				}
 			}
 		}
-		if(false)
-		{
-			
-			for (Element element : autoTileContextIndex) {
-				autoTileHref = element.attribute("href").getValue();
-				String autoTileName = element.getText();
-				if(autoTileHref.contains("privacy.php")
-						|| autoTileHref.replaceAll("/", "").equals(manufacturer)
-						|| autoTileHref.equals(domain)
-						)
-					continue;
-				logger.debug("\n"+autoTileHref+"\n"+autoTileName);
-				domFromStream = getDomFromStream(autoTileHref);
-				autoTileNr++;
-				addAutoTile = addAutoTile(autoTileHref, autoTileNr, autoTileName, domFromStream, autoDocBody);
-				
-				if(autoTileNr>=3)
-					break;
-			}
-		}
-		
 		try{
-			System.out.println("------buildBookmark----------------------");
 			buildBookmark(autoDocument);
 			String htmlOutFileName = outputDir+"/"+manufacturer+"/"+manufacturer+"_"+autoName+".html";
-			System.out.println("----saveHtml------------------------");
 			saveHtml(autoDocument, htmlOutFileName);
-			System.out.println("------savePdf----------------------");
 			savePdf(htmlOutFileName, htmlOutFileName+".pdf");
-			System.out.println("------OK----------------------");
 		}catch(Exception e){
 			e.printStackTrace();
-			System.out.println("-NOT SAVED----manufacturer----------autoName-----------"
-					+ autoTileNr
-					+ "--"+autoTileContextIndex.size());
-			System.out.println(addAutoTile);
-			System.out.println(e.getMessage());
 		}
 //		readManualIndex(msg);
 	}
@@ -254,8 +427,6 @@ public class ScheduledTasks {
 			.appendSeconds().appendSuffix("s ")
 			.toFormatter();
 	private void buildBookmark(Document autoDocument) {
-		//List<Element> bookmarkEls = autoDocument.selectNodes("/html/body/*[@class='bookmark']");
-//		List<Element> bookmarkEls = autoDocument.selectNodes("/html/body//*[@data-bookmark='h2'|@data-bookmark='h3'|@data-bookmark='h4']");
 		List<Element> bookmarkEls = autoDocument.selectNodes("/html/body//*[@data-bookmark='h2' or @data-bookmark='h3' or @data-bookmark='h4']");
 		logger.debug(""+bookmarkEls.size());
 		Element headEl = (Element) autoDocument.selectSingleNode("/html/head");
@@ -266,13 +437,11 @@ public class ScheduledTasks {
 		int i = 0;
 		for (Element h234Element : bookmarkEls) {
 			i++;
-			System.out.println(i);
 			if(h234Element.attribute("data-bookmark").getValue().equals("h2"))
 			{
 				h2 = bookmarks.addElement("bookmark");
 				h2id = "bm"+h2i++;
 				makeBookmark(h2, h234Element, h2id);
-				System.out.println(h2.asXML());
 			}
 			else
 				if(h234Element.attribute("data-bookmark").getValue().equals("h3"))
@@ -280,7 +449,6 @@ public class ScheduledTasks {
 					h3 = h2.addElement("bookmark");
 					h3id = h2id + "."+h3i++;
 					makeBookmark(h3, h234Element, h3id);
-					System.out.println(h3.asXML());
 				}
 				else
 					if(h234Element.attribute("data-bookmark").getValue().equals("h4"))
@@ -288,7 +456,6 @@ public class ScheduledTasks {
 						h4 = h3.addElement("bookmark");
 						h4id = h3id + "."+h4i++;
 						makeBookmark(h4, h234Element, h4id);
-						System.out.println(h4.asXML());
 					}
 			
 		}
@@ -379,12 +546,10 @@ public class ScheduledTasks {
 	}
 	
 	private List<Element> getAutoTileContextIndex(String autoHref, Document domFromStream) {
-		Element selectSingleNode = (Element) domFromStream.selectSingleNode("/html/body//iframe");
-		String indexHrefAdd = selectSingleNode.attributeValue("src");
+		String indexHrefAdd = ((Attribute) domFromStream.selectSingleNode("/html/body//iframe/@src")).getValue();
 		String hrefIndex = autoHref+""+indexHrefAdd;
 		logger.debug("\n hrefIndex = "+hrefIndex);
-		List<Element> selectNodes2 = getDomFromStream(hrefIndex).selectNodes("/html/body/div//a");
-		return selectNodes2;
+		return (List<Element>) getDomFromStream(hrefIndex).selectNodes("/html/body/div//a");
 	}
 
 	private Document createAutoDocument() {
@@ -455,7 +620,7 @@ public class ScheduledTasks {
 	}
 	//-------------index file--------------------------END
 
-	private Document getDomFromStream(String url) {
+	private DOMDocument getDomFromStream(String url) {
 		HttpURLConnection urlConnection = getUrlConnection(url);
 		try {
 			return getDomFromStream(urlConnection);
@@ -464,7 +629,7 @@ public class ScheduledTasks {
 		}
 		return null;
 	}
-	private Document getDomFromStream(HttpURLConnection urlConnection) throws IOException {
+	private DOMDocument getDomFromStream(HttpURLConnection urlConnection) throws IOException {
 		InputStream requestBody = urlConnection.getInputStream();
 		
 		BufferedReader in = new BufferedReader(new InputStreamReader(requestBody));
@@ -483,7 +648,7 @@ public class ScheduledTasks {
 		
 		org.w3c.dom.Document html2xhtml = tidy.parseDOM(byteArrayInputStream, null);
 //		org.w3c.dom.Document html2xhtml = tidy.parseDOM(requestBody, null);
-		Document document = domReader.read(html2xhtml);
+		DOMDocument document = (DOMDocument) domReader.read(html2xhtml);
 		return document;
 	}
 
