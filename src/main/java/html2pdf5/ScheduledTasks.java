@@ -127,6 +127,7 @@ public class ScheduledTasks {
 						) continue;
 				autoDocument = createAutoDocument();
 				
+				autoTileAllIndexNr = 0;
 				readAutoIndexList(autoHref, autoName, manufacturer);
 //				readAuto(autoHref, autoName, manufacturer);
 				cnt2++;
@@ -150,11 +151,20 @@ public class ScheduledTasks {
 	Document autoDocument;
 	Map<String, Object> autoData;
 	
+	int autoTileAllIndexNr = 0;
 	int autoTileIndexNr = 0;
 	private void readAutoIndexList(String autoTileHref, String autoName, String manufacturer) {
 		autoTileIndexNr = 0;
 		initAutoData();
 		readNextAutoIndexList(autoTileHref);
+		while(nextAutoTileElement != null){
+			autoTileIndexNr = 0;
+			Attribute hrefAttribute = (Attribute) nextAutoTileElement.selectSingleNode("a/@href");
+			String hrefAutoTileNext = hrefAttribute.getValue();
+			boolean readNextAutoIndexList = readNextAutoIndexList(hrefAutoTileNext);
+			if(!readNextAutoIndexList)
+				break;
+		}
 		try{
 			buildBookmark(autoDocument);
 			autoName = autoName.replaceAll(" ", "_");
@@ -166,7 +176,8 @@ public class ScheduledTasks {
 			e.printStackTrace();
 		}
 	}
-	private void readNextAutoIndexList(String autoTileHref) {
+
+	private boolean readNextAutoIndexList(String autoTileHref) {
 		DOMDocument autoTileContextDom = null;
 		try{
 			Document autoTileDom = getDomFromStream(autoTileHref);
@@ -182,9 +193,11 @@ public class ScheduledTasks {
 			contextItem.put("url", autoTileHref);
 			workIndexList.add(contextItem);
 			logger.error(e.getMessage());
-			return;
+			nextAutoTileElement = null;
+			return false;
 		}
-
+		if (autoTileContextDom == null)
+			return false;
 		List<DOMElement> myPagePosition = (List<DOMElement>) autoTileContextDom.selectNodes("/html/body/div/p[@style and not(a)]");
 		Map<String, Object> contextItem = null;
 		for (Element element : myPagePosition) {
@@ -195,18 +208,20 @@ public class ScheduledTasks {
 			if(levelInt < 0 && !autoData.containsKey("autoName")){
 				autoData.put("autoName", text);
 			}else if(levelInt >= 0){
-				int indexOfcrrent = text.indexOf(">>");
-				if(indexOfcrrent == 0)
+				int indexOfcurrent = text.indexOf(">>");
+				if(indexOfcurrent == 0)
 				{
 					levelInt = levelInt + 1;
 					text = text.replace(">>", "").replace("<<", "").trim();
-					logger.debug("/"+levelInt+" -- "+text);
+					logger.debug(autoTileIndexNr+"/"+autoTileAllIndexNr+"/"+levelInt+" -- "+text);
 				}
 				contextItem = new HashMap<String, Object>();
 				contextItem.put("text", text);
 				Map<String, Object> workContentItem = autoData;
 				List<Map<String, Object>> workIndexList = initIndexList(workContentItem);
 				for (int i = 0; i < levelInt; i++) {
+					if(workIndexList.size() == 0)//not skip level
+						break;
 					workContentItem = workIndexList.get(workIndexList.size() - 1);
 					workIndexList = initIndexList(workContentItem);
 				}
@@ -215,16 +230,30 @@ public class ScheduledTasks {
 		}
 		contextItem.put("url", autoTileHref);
 		DOMElement lastElement = myPagePosition.get(myPagePosition.size() - 1);
-		DOMElement nextSibling = (DOMElement) lastElement.getNextSibling();
-		if(nextSibling != null){
+		nextAutoTileElement = (DOMElement) lastElement.getNextSibling();
+		nextAutoTileElement = getLastIndexElement(nextAutoTileElement);
+		
+		if(nextAutoTileElement != null){
 			autoTileIndexNr++;
-			if(autoTileIndexNr > 100000)
-				return;
-			Attribute hrefAttribute = (Attribute) nextSibling.selectSingleNode("a/@href");
+			autoTileAllIndexNr++;
+			if(autoTileIndexNr > 1000)
+				return true;
+			Attribute hrefAttribute = (Attribute) nextAutoTileElement.selectSingleNode("a/@href");
 			String hrefAutoTileNext = hrefAttribute.getValue();
 			readNextAutoIndexList(hrefAutoTileNext);
 		}
+		return false;
 	}
+	//for test
+	private DOMElement getLastIndexElement(DOMElement lastElement) {
+		nextAutoTileElement = (DOMElement) lastElement.getNextSibling();
+		if(nextAutoTileElement == null)
+		{
+			return lastElement;
+		}
+		return getLastIndexElement(nextAutoTileElement);
+	}
+	DOMElement nextAutoTileElement = null;
 
 	void writeToJsonDbFile(Object java2jsonObject, String fileName) {
 		File file = new File(fileName);
