@@ -59,9 +59,9 @@ public class ScheduledTasks {
 	String domain = "http://workshop-manuals.com";
 	String ford1 ="http://workshop-manuals.com/ford/c-max_2003.75_06.2003/mechanical_repairs/1_general_information/100_service_information/100-00_general_information/description_and_operation/about_this_manual/";
 	//develop
-	String outputDir ="/home/roman/algoritmed.com/jura-boris/workshop-manuals.com/OUT";
+//	String outputDir ="/home/roman/algoritmed.com/jura-boris/workshop-manuals.com/OUT";
 	//prodaction
-//	String outputDir ="/home/holweb/jura/workshop-manuals.com";
+	String outputDir ="/home/holweb/jura/workshop-manuals.com/OUT1";
 	
 	private Document autoIndexDocument;
 	private Element bodyElAutoIndexDocument;
@@ -101,8 +101,8 @@ public class ScheduledTasks {
 				readManufacturer(manufacturerAncorElement, href, manufacturer, document2);
 			}
 			cnt1++;
-			if(cnt1 >=1)
-				break;
+//			if(cnt1 >=1)
+//				break;
 		}
 		String msg = "url "+domain + " :: overall "+selectNodes.size()+"/"+cntVehicles;
 //		bodyElAutoIndexDocument.addText(msg);
@@ -125,6 +125,8 @@ public class ScheduledTasks {
 				if(replace.equals(manufacturer) 
 						|| autoHref.equals(domain)
 						) continue;
+				if(!autoName.contains("1991"))
+					continue;
 				autoDocument = createAutoDocument();
 				
 				autoTileAllIndexNr = 0;
@@ -132,8 +134,8 @@ public class ScheduledTasks {
 //				readAuto(autoHref, autoName, manufacturer);
 				cnt2++;
 				System.out.println("-----------------------------------------------------"+cnt2);
-				if(cnt2==1)
-					break;
+//				if(cnt2==1)
+//					break;
 			}
 		}
 	}
@@ -231,7 +233,7 @@ public class ScheduledTasks {
 		contextItem.put("url", autoTileHref);
 		DOMElement lastElement = myPagePosition.get(myPagePosition.size() - 1);
 		nextAutoTileElement = (DOMElement) lastElement.getNextSibling();
-		nextAutoTileElement = getLastIndexElement(nextAutoTileElement);
+//		nextAutoTileElement = getLastIndexElement(nextAutoTileElement);
 		
 		if(nextAutoTileElement != null){
 			autoTileIndexNr++;
