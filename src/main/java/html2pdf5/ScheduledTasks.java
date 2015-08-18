@@ -60,8 +60,9 @@ public class ScheduledTasks {
 	String ford1 ="http://workshop-manuals.com/ford/c-max_2003.75_06.2003/mechanical_repairs/1_general_information/100_service_information/100-00_general_information/description_and_operation/about_this_manual/";
 	//develop
 //	String outputDir ="/home/roman/algoritmed.com/jura-boris/workshop-manuals.com/OUT";
+	String outputDir ="/home/roman/jura/workshop-manuals1991/OUT1";
 	//prodaction
-	String outputDir ="/home/holweb/jura/workshop-manuals.com/OUT1";
+//	String outputDir ="/home/holweb/jura/workshop-manuals.com/OUT1";
 	
 	private Document autoIndexDocument;
 	private Element bodyElAutoIndexDocument;
@@ -331,7 +332,7 @@ public class ScheduledTasks {
 				}
 			}
 		}
-		addAutoTile();
+		
 
 		/*
 		List<DOMElement> autoTileContextIndex = (List<DOMElement>) contextDocument.selectNodes("/html/body/div/p/a");
@@ -370,11 +371,6 @@ public class ScheduledTasks {
 		return myPagePosition;
 	}
 
-	private void addAutoTile() {
-		// TODO Auto-generated method stub
-		
-	}
-
 	private void readAuto2(String autoTileHref, String autoName, String manufacturer) {
 		logger.debug(autoTileHref);
 		Document domFromStream = getDomFromStream(autoTileHref);
@@ -386,7 +382,8 @@ public class ScheduledTasks {
 				autoName);
 		logger.debug(autoTileHref+" :: "+autoName);
 		int autoTileNr = 1;
-		addAutoTile(autoTileHref, autoTileNr, "t1", domFromStream, autoDocBody);
+		addAutoTile(autoTileNr, "t1", domFromStream, autoDocBody);
+		//addAutoTile(autoTileHref, autoTileNr, "t1", domFromStream, autoDocBody);
 
 		List<Element> autoTileContextIndex = getAutoTileContextIndex(autoTileHref, domFromStream);
 		logger.debug(
@@ -537,7 +534,7 @@ public class ScheduledTasks {
 		System.out.println(9);
 	}
 
-	private String addAutoTile(String autoHref, int autoTileNr, String autoTileName, Document domFromStream, Element autoDocBody) {
+	private String addAutoTile(int autoTileNr, String autoTileName, Document domFromStream, Element autoDocBody) {
 		Element autoTileElement = (Element) domFromStream.selectSingleNode("/html/body//div[@id='page1-div']");
 		if(autoTileElement != null){
 			autoTileElement.attribute("id").setValue("auto_tile_"+autoTileNr);
